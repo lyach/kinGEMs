@@ -1,0 +1,17 @@
+{
+  "model_name": "iML1515_GEM",
+  "organism": "E coli",
+  "biomass_reaction": null,
+  "enzyme_upper_bound": 0.25,
+  "solver": "glpk",
+  "conditions_csv": "examples/davidi_media.csv",
+  "enable_fva": false,
+  "enable_biolog_validation": false,
+  "enable_maintenance_sweep": false,
+  "enzyme_constraints": {
+    "multi_enzyme_off": false,
+    "isoenzymes_off": false,
+    "promiscuous_off": false,
+    "complexes_off": false
+  }
+}

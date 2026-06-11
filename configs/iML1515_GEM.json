@@ -6,7 +6,7 @@
   "solver": "glpk",
   "enable_fva": false,
   "enable_biolog_validation": false,
-  "enable_maintenance_sweep": true,
+  "enable_maintenance_sweep": false,
   "edit_ngam": false,
   "ngam_rxn_id": "ATPM",
   "_comment_edit_ngam": "Set to true to set NGAM (ATPM) lower bound to 0 during optimization",

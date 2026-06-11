@@ -152,6 +152,9 @@ venv.bak/
 .spyderproject
 .spyproject
 
+# IDE
+.cursor
+
 # Rope project settings
 .ropeproject
 
@@ -194,6 +197,7 @@ results/tuning_results/
 results/validation/
 results/biolog_validation/
 results/alternative_solutions/
+results/davidi_conditions/
 # Allow this specific tuning results folder
 !results/tuning_results/iML1515_GEM_20260126_9839/
 !results/tuning_results/iML1515_GEM_20260126_9839/**

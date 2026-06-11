@@ -40,6 +40,80 @@ try:
 except ImportError:
     pass
 
+def apply_medium_irreversible(model, medium, growth_reaction=None, growth_value=None, verbose=True):
+    """
+    Apply medium constraints to an irreversible-converted COBRA model.
+
+    Follows a "close-all-then-open" strategy adapted from the COBRApy
+    ``model.medium`` approach, but works directly on the ``_reverse``
+    exchange reactions produced by ``convert_to_irreversible``.
+
+    Steps:
+      1. Close ALL ``_reverse`` exchange reactions (``upper_bound = 0``).
+      2. Re-open only the exchanges listed in *medium* with their given
+         uptake value.
+      3. Optionally fix the growth/biomass reaction at a measured value.
+
+    Parameters
+    ----------
+    model : cobra.Model
+        An irreversible COBRA model (modified **in-place**).
+    medium : dict
+        Mapping of exchange reaction IDs to uptake values.  Keys may use the
+        original reversible name (e.g. ``EX_glc__D_e``) -- the function
+        automatically appends ``_reverse`` when needed.  Values of ``NaN``
+        are silently skipped.
+    growth_reaction : str, optional
+        Biomass/growth reaction ID whose bounds should be fixed.
+    growth_value : float, optional
+        Value to lock both lower and upper bounds of the growth reaction.
+    verbose : bool, optional
+        Print information about modified reactions (default ``True``).
+    """
+    if medium is None:
+        return
+
+    # 1) Close every *_reverse* exchange reaction
+    reverse_exchanges = [
+        rxn for rxn in model.reactions
+        if rxn.id.endswith('_reverse') and len(rxn.metabolites) == 1
+    ]
+    for rxn in reverse_exchanges:
+        rxn.upper_bound = 0.0
+
+    if verbose:
+        print(f"  Closed {len(reverse_exchanges)} reverse-exchange reactions")
+
+    # 2) Open the ones specified in the medium dict
+    opened = 0
+    for rxn_id, flux_value in medium.items():
+        if pd.isna(flux_value):
+            continue
+
+        rev_id = rxn_id if rxn_id.endswith('_reverse') else rxn_id + '_reverse'
+        try:
+            rxn = model.reactions.get_by_id(rev_id)
+            rxn.upper_bound = abs(float(flux_value))
+            opened += 1
+        except KeyError:
+            if verbose:
+                print(f"    Warning: '{rev_id}' not found in model, skipping")
+
+    if verbose:
+        print(f"  Opened {opened} exchange reactions from medium specification")
+
+    # 3) Fix the growth reaction if requested
+    if growth_reaction is not None and growth_value is not None:
+        try:
+            rxn = model.reactions.get_by_id(growth_reaction)
+            rxn.lower_bound = float(growth_value)
+            rxn.upper_bound = float(growth_value)
+            if verbose:
+                print(f"  Fixed growth {growth_reaction}: lb=ub={growth_value}")
+        except KeyError:
+            print(f"  Warning: growth reaction '{growth_reaction}' not found in model")
+
+
 def _tokenize_gpr(rule):
     """Split a GPR rule into tokens: parentheses, 'and', 'or', gene IDs."""
     # Use case-insensitive matching for 'and'/'or', but preserve gene ID case
