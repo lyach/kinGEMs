@@ -40,19 +40,27 @@ try:
 except ImportError:
     pass
 
-def apply_medium_irreversible(model, medium, growth_reaction=None, growth_value=None, verbose=True):
+def apply_medium_irreversible(model, medium, growth_reaction=None, growth_value=None,
+                              open_sentinel=1000.0, default_uptake_bound=10.0,
+                              verbose=True):
     """
-    Apply medium constraints to an irreversible-converted COBRA model.
+    Apply medium constraints to an irreversible COBRA model.
 
     Follows a "close-all-then-open" strategy adapted from the COBRApy
     ``model.medium`` approach, but works directly on the ``_reverse``
     exchange reactions produced by ``convert_to_irreversible``.
 
     Steps:
-      1. Close ALL ``_reverse`` exchange reactions (``upper_bound = 0``).
-      2. Re-open only the exchanges listed in *medium* with their given
-         uptake value.
-      3. Optionally fix the growth/biomass reaction at a measured value.
+      1. Save original upper bounds of all ``_reverse`` exchange reactions.
+      2. Close ALL ``_reverse`` exchange reactions (``upper_bound = 0``).
+      3. Re-open only the exchanges listed in *medium*:
+         - If the value >= *open_sentinel* (default 1000): restore the
+           reaction's **original** upper bound when that bound was > 0.
+           If the original bound was 0 (reaction closed by default), use
+           *default_uptake_bound* instead.
+         - If the value is 0 or ``NaN``, leave it closed.
+         - Otherwise, use the value as the upper bound directly.
+      4. Optionally fix the growth/biomass reaction at a measured value.
 
     Parameters
     ----------
@@ -67,33 +75,54 @@ def apply_medium_irreversible(model, medium, growth_reaction=None, growth_value=
         Biomass/growth reaction ID whose bounds should be fixed.
     growth_value : float, optional
         Value to lock both lower and upper bounds of the growth reaction.
+    open_sentinel : float, optional
+        CSV value that means "compound is available" (default ``1000.0``).
+    default_uptake_bound : float, optional
+        Upper bound used for reactions that the sentinel opens but whose
+        original model bound was 0 (default ``10.0``).
     verbose : bool, optional
         Print information about modified reactions (default ``True``).
     """
     if medium is None:
         return
 
-    # 1) Close every *_reverse* exchange reaction
+    # 1) Identify reverse exchange reactions and save original upper bounds
     reverse_exchanges = [
         rxn for rxn in model.reactions
         if rxn.id.endswith('_reverse') and len(rxn.metabolites) == 1
     ]
+    original_ub = {rxn.id: rxn.upper_bound for rxn in reverse_exchanges}
+
+    # 2) Close every *_reverse* exchange reaction
     for rxn in reverse_exchanges:
         rxn.upper_bound = 0.0
 
     if verbose:
         print(f"  Closed {len(reverse_exchanges)} reverse-exchange reactions")
 
-    # 2) Open the ones specified in the medium dict
+    # 3) Open the ones specified in the medium dict
     opened = 0
+    opened_from_default = 0
     for rxn_id, flux_value in medium.items():
         if pd.isna(flux_value):
+            continue
+
+        flux_value = float(flux_value)
+        if flux_value == 0.0:
             continue
 
         rev_id = rxn_id if rxn_id.endswith('_reverse') else rxn_id + '_reverse'
         try:
             rxn = model.reactions.get_by_id(rev_id)
-            rxn.upper_bound = abs(float(flux_value))
+            if flux_value >= open_sentinel:
+                orig = original_ub.get(rev_id, 0.0)
+                if orig > 0:
+                    rxn.upper_bound = orig
+                else:
+                    rxn.upper_bound = default_uptake_bound
+                    opened_from_default += 1
+            else:
+                rxn.upper_bound = abs(flux_value)
             opened += 1
         except KeyError:
             if verbose:
@@ -101,8 +130,10 @@ def apply_medium_irreversible(model, medium, growth_reaction=None, growth_value=
 
     if verbose:
         print(f"  Opened {opened} exchange reactions from medium specification")
+        if opened_from_default > 0:
+            print(f"    ({opened_from_default} had no model default; used default_uptake_bound={default_uptake_bound})")
 
-    # 3) Fix the growth reaction if requested
+    # 4) Fix the growth reaction if requested
     if growth_reaction is not None and growth_value is not None:
         try:
             rxn = model.reactions.get_by_id(growth_reaction)
