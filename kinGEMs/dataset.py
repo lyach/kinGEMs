@@ -1066,6 +1066,85 @@ def process_kcat_predictions(merged_df, predictions_csv_path, output_path=None):
 
     return result_df
 
+def process_kcat_invivo(merged_df, df_invivo_kcat, mode='replace_kcat', output_path=None):
+    """
+    Merge in-vivo kcat data with the merged substrate-sequence dataframe.
+
+    Parameters
+    ----------
+    merged_df : pandas.DataFrame
+        DataFrame with substrates and sequences from merge_substrate_sequences.
+    df_invivo_kcat : str or pandas.DataFrame
+        Path to a CSV file (or a DataFrame) containing in-vivo kcat values.
+        Must include columns: 'kcat_app_max', 'sequence', 'SMILES', 'rxn'.
+    mode : {'replace_kcat', 'trim_kcat'}
+        'replace_kcat' – left-join: keep all rows of merged_df and overwrite
+        kcat_mean where in-vivo data are available.
+        'trim_kcat'    – inner-join: keep only rows that have in-vivo kcat data.
+    output_path : str, optional
+        Path to save the processed data.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Processed dataframe with in-vivo kcat merged in.
+    """
+    import os
+
+    import pandas as pd
+
+    if mode not in ('replace_kcat', 'trim_kcat'):
+        raise ValueError(f"mode must be 'replace_kcat' or 'trim_kcat', got: {mode!r}")
+
+    # Load in-vivo kcat table
+    if isinstance(df_invivo_kcat, str):
+        if not os.path.exists(df_invivo_kcat):
+            raise FileNotFoundError(f"In-vivo kcat file not found: {df_invivo_kcat}")
+        invivo_df = pd.read_csv(df_invivo_kcat)
+    else:
+        invivo_df = df_invivo_kcat.copy()
+
+    # Keep only the columns we need
+    keep_cols = ['kcat_app_max', 'sequence', 'SMILES', 'rxn']
+    missing = [c for c in keep_cols if c not in invivo_df.columns]
+    if missing:
+        raise ValueError(f"Missing required columns in df_invivo_kcat: {missing}")
+    invivo_df = invivo_df[keep_cols].copy()
+
+    # Standardise column names to match merged_df
+    invivo_df = invivo_df.rename(columns={
+        'kcat_app_max': 'kcat_mean',
+        'sequence':     'SEQ',
+        'SMILES':       'CMPD_SMILES',
+        'rxn':          'Reactions',
+    })
+
+    merge_how = 'left' if mode == 'replace_kcat' else 'inner'
+    result_df = pd.merge(
+        merged_df,
+        invivo_df,
+        on=['SEQ', 'CMPD_SMILES', 'Reactions'],
+        how=merge_how,
+        suffixes=('_x', '_y'),
+    )
+
+    # If merged_df already had a kcat_mean column, the in-vivo values take precedence
+    if 'kcat_mean_y' in result_df.columns:
+        if mode == 'replace_kcat':
+            result_df['kcat_mean'] = result_df['kcat_mean_y'].combine_first(result_df['kcat_mean_x'])
+        else:
+            result_df['kcat_mean'] = result_df['kcat_mean_y']
+        result_df = result_df.drop(columns=['kcat_mean_x', 'kcat_mean_y'])
+
+    result_df.drop_duplicates(inplace=True)
+    result_df.reset_index(drop=True, inplace=True)
+
+    if output_path:
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        result_df.to_csv(output_path, index=False)
+
+    return result_df
+
 def process_merged_data_with_folds(merged_df, fold_csv_paths, output_path=None):
     """
     Directly process a merged dataframe with fold predictions.

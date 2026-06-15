@@ -39,6 +39,7 @@ from kinGEMs.dataset import (
     merge_substrate_sequences,
     prepare_model_data,
     process_kcat_predictions,
+    process_kcat_invivo,
     convert_to_irreversible,
 )
 from kinGEMs.dataset_modelseed import prepare_modelseed_model_data
@@ -227,17 +228,41 @@ def prepare_data(config: dict, force_regenerate: bool = False):
         )
     print(f"  Merged data: {len(merged_data)} rows")
 
-    # --- Step 3: Process kcat predictions ---
-    print("=== Step 3: Processing CPI-Pred kcat values ===")
-    if not force_regenerate and os.path.exists(processed_data_output):
-        processed_data = pd.read_csv(processed_data_output)
+    # --- Step 3: Process kcat values ---
+    invivo_kcat_path = config.get('df_invivo_kcat', '')
+    kcat_mode = config.get('mode', 'replace_kcat')
+    invivo_output_rel = config.get('df_kcat_processed_output', '')
+    invivo_output = (
+        os.path.join(project_root, invivo_output_rel) if invivo_output_rel else None
+    )
+
+    if invivo_kcat_path:
+        # In-vivo kcat branch
+        invivo_kcat_abs = os.path.join(project_root, invivo_kcat_path)
+        active_output = invivo_output or processed_data_output
+        print(f"=== Step 3: Processing in-vivo kcat values (mode={kcat_mode}) ===")
+        if not force_regenerate and active_output and os.path.exists(active_output):
+            processed_data = pd.read_csv(active_output)
+        else:
+            processed_data = process_kcat_invivo(
+                merged_df=merged_data,
+                df_invivo_kcat=invivo_kcat_abs,
+                mode=kcat_mode,
+                output_path=active_output,
+            )
     else:
-        predictions_path = find_predictions_file(model_name, cpipred_dir)
-        processed_data = process_kcat_predictions(
-            merged_df=merged_data,
-            predictions_csv_path=predictions_path,
-            output_path=processed_data_output,
-        )
+        # CPI-Pred predictions branch
+        active_output = processed_data_output
+        print("=== Step 3: Processing CPI-Pred kcat values ===")
+        if not force_regenerate and os.path.exists(active_output):
+            processed_data = pd.read_csv(active_output)
+        else:
+            predictions_path = find_predictions_file(model_name, cpipred_dir)
+            processed_data = process_kcat_predictions(
+                merged_df=merged_data,
+                predictions_csv_path=predictions_path,
+                output_path=active_output,
+            )
     print(f"  Processed data: {len(processed_data)} rows")
 
     if 'kcat_mean' in processed_data.columns and 'kcat' not in processed_data.columns:

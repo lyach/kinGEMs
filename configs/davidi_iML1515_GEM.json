@@ -13,5 +13,8 @@
     "isoenzymes_off": false,
     "promiscuous_off": false,
     "complexes_off": false
-  }
+  },
+  "mode": "replace_kcat",
+  "df_invivo_kcat": "data/in_vivo_kcat/kmax_davidi_consensus.csv",
+  "df_kcat_processed_output": "data/processed/iML1515_GEM/consensus_processed_data.csv"
 }
